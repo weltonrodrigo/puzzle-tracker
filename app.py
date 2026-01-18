@@ -202,6 +202,24 @@ def record_event():
     return jsonify({"error": "Session not found"}), 404
 
 
+@app.route('/api/sessions/<session_id>/undo', methods=['POST'])
+def undo_last_event(session_id):
+    """Remove the last event from a session."""
+    data = load_data()
+
+    for session in data['sessions']:
+        if session['id'] == session_id:
+            events = session.get('events', [])
+            if not events:
+                return jsonify({"error": "No events to undo"}), 400
+
+            removed_event = events.pop()
+            save_data(data)
+            return jsonify({"removed": removed_event, "remainingEvents": len(events)})
+
+    return jsonify({"error": "Session not found"}), 404
+
+
 @app.route('/api/stats/<puzzle_id>', methods=['GET'])
 def get_stats(puzzle_id):
     """Get statistics for a puzzle."""

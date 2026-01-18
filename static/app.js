@@ -57,7 +57,8 @@ const elements = {
     playIcon: document.getElementById('play-icon'),
     progressionCanvas: document.getElementById('progression-canvas'),
     graphEmpty: document.getElementById('graph-empty'),
-    sessionView: document.getElementById('session-view')
+    sessionView: document.getElementById('session-view'),
+    undoBtn: document.getElementById('undo-btn')
 };
 
 // View Management
@@ -169,6 +170,21 @@ async function recordEvent(sessionId, type, elapsed) {
         });
     } catch (error) {
         console.error('Error recording event:', error);
+    }
+}
+
+async function undoLastEvent(sessionId) {
+    try {
+        const response = await fetch(`/api/sessions/${sessionId}/undo`, {
+            method: 'POST'
+        });
+        if (!response.ok) {
+            return null;
+        }
+        return await response.json();
+    } catch (error) {
+        console.error('Error undoing event:', error);
+        return null;
     }
 }
 
@@ -423,6 +439,7 @@ async function handleContinueSession(sessionId) {
     elements.playIcon.classList.add('hidden');
 
     updateButtonStates();
+    updateUndoButtonState();
     startTimers();
     showView('session');
 
@@ -469,6 +486,7 @@ async function handleStartSession() {
     elements.playIcon.classList.add('hidden');
 
     updateButtonStates();
+    updateUndoButtonState();
     startTimers();
     showView('session');
 
@@ -546,6 +564,7 @@ async function handlePiecePlaced() {
     elements.sessionPlaced.textContent = current + 1;
 
     updateButtonStates();
+    updateUndoButtonState();
     elements.pieceTime.textContent = '--';
 
     // Visual feedback
@@ -570,6 +589,7 @@ async function handlePieceFailed() {
     elements.sessionFailed.textContent = current + 1;
 
     updateButtonStates();
+    updateUndoButtonState();
     elements.pieceTime.textContent = '--';
 
     // Visual feedback
@@ -577,6 +597,49 @@ async function handlePieceFailed() {
     setTimeout(() => {
         elements.pieceFailedBtn.style.transform = '';
     }, 100);
+}
+
+async function handleUndo() {
+    if (!state.currentSession || state.isPaused) return;
+
+    const result = await undoLastEvent(state.currentSession.id);
+    if (!result) return;
+
+    const removedEvent = result.removed;
+
+    // Update UI counters
+    if (removedEvent.type === 'piece_placed') {
+        const current = parseInt(elements.sessionPlaced.textContent);
+        elements.sessionPlaced.textContent = Math.max(0, current - 1);
+        // Remove from pieceTimes array for graph
+        state.pieceTimes.pop();
+        updateProgressionGraph();
+    } else if (removedEvent.type === 'piece_failed') {
+        const current = parseInt(elements.sessionFailed.textContent);
+        elements.sessionFailed.textContent = Math.max(0, current - 1);
+    }
+
+    updateUndoButtonState();
+
+    // Visual feedback
+    elements.undoBtn.style.transform = 'scale(0.95)';
+    setTimeout(() => {
+        elements.undoBtn.style.transform = '';
+    }, 100);
+}
+
+function updateUndoButtonState() {
+    const placedCount = parseInt(elements.sessionPlaced.textContent) || 0;
+    const failedCount = parseInt(elements.sessionFailed.textContent) || 0;
+    const hasEvents = (placedCount + failedCount) > 0;
+
+    if (hasEvents && !state.isPaused) {
+        elements.undoBtn.classList.remove('disabled');
+        elements.undoBtn.disabled = false;
+    } else {
+        elements.undoBtn.classList.add('disabled');
+        elements.undoBtn.disabled = true;
+    }
 }
 
 async function handleDeletePuzzle(puzzleId) {
@@ -690,6 +753,7 @@ function handlePauseToggle() {
     }
 
     updateButtonStates();
+    updateUndoButtonState();
 }
 
 // Progression Graph Functions
@@ -858,6 +922,7 @@ elements.viewStatsBtn.addEventListener('click', () => {
 elements.piecePickedBtn.addEventListener('click', handlePiecePicked);
 elements.piecePlacedBtn.addEventListener('click', handlePiecePlaced);
 elements.pieceFailedBtn.addEventListener('click', handlePieceFailed);
+elements.undoBtn.addEventListener('click', handleUndo);
 elements.endSessionBtn.addEventListener('click', handleEndSession);
 elements.pauseBtn.addEventListener('click', handlePauseToggle);
 
