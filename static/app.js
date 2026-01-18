@@ -13,7 +13,12 @@ let state = {
     sessionStartTime: null,
     lastEventTime: null,
     piecePickedTime: null,  // Time when current piece was picked
-    isPiecePicked: false    // Whether a piece is currently picked
+    isPiecePicked: false,   // Whether a piece is currently picked
+    isPaused: false,        // Whether session is paused
+    pausedAt: null,         // When pause started
+    totalPausedTime: 0,     // Total time spent paused (ms)
+    piecePausedTime: 0,     // Time paused while holding current piece (ms)
+    pieceTimes: []          // Array of placement times for graph
 };
 
 // DOM Elements
@@ -46,7 +51,13 @@ const elements = {
     piecePlacedBtn: document.getElementById('piece-placed-btn'),
     pieceFailedBtn: document.getElementById('piece-failed-btn'),
     endSessionBtn: document.getElementById('end-session-btn'),
-    statsContent: document.getElementById('stats-content')
+    statsContent: document.getElementById('stats-content'),
+    pauseBtn: document.getElementById('pause-btn'),
+    pauseIcon: document.getElementById('pause-icon'),
+    playIcon: document.getElementById('play-icon'),
+    progressionCanvas: document.getElementById('progression-canvas'),
+    graphEmpty: document.getElementById('graph-empty'),
+    sessionView: document.getElementById('session-view')
 };
 
 // View Management
@@ -324,29 +335,44 @@ async function handleStartSession() {
     state.lastEventTime = Date.now();
     state.piecePickedTime = null;
     state.isPiecePicked = false;
+    state.isPaused = false;
+    state.pausedAt = null;
+    state.totalPausedTime = 0;
+    state.piecePausedTime = 0;
+    state.pieceTimes = [];
 
     elements.sessionPuzzleName.textContent = state.currentPuzzle.name;
     elements.sessionPlaced.textContent = '0';
     elements.sessionFailed.textContent = '0';
     elements.sessionTimer.textContent = '00:00:00';
     elements.pieceTime.textContent = '--';
+    elements.sessionView.classList.remove('session-paused');
+    elements.pauseIcon.classList.remove('hidden');
+    elements.playIcon.classList.add('hidden');
 
     updateButtonStates();
     startTimers();
     showView('session');
+
+    // Reset graph after view is visible so canvas has proper dimensions
+    requestAnimationFrame(() => {
+        resetProgressionGraph();
+    });
 }
 
 function updateButtonStates() {
+    const paused = state.isPaused;
+
     if (state.isPiecePicked) {
         elements.piecePickedBtn.classList.add('disabled');
         elements.piecePickedBtn.disabled = true;
-        elements.piecePlacedBtn.classList.remove('disabled');
-        elements.piecePlacedBtn.disabled = false;
-        elements.pieceFailedBtn.classList.remove('disabled');
-        elements.pieceFailedBtn.disabled = false;
+        elements.piecePlacedBtn.classList.toggle('disabled', paused);
+        elements.piecePlacedBtn.disabled = paused;
+        elements.pieceFailedBtn.classList.toggle('disabled', paused);
+        elements.pieceFailedBtn.disabled = paused;
     } else {
-        elements.piecePickedBtn.classList.remove('disabled');
-        elements.piecePickedBtn.disabled = false;
+        elements.piecePickedBtn.classList.toggle('disabled', paused);
+        elements.piecePickedBtn.disabled = paused;
         elements.piecePlacedBtn.classList.add('disabled');
         elements.piecePlacedBtn.disabled = true;
         elements.pieceFailedBtn.classList.add('disabled');
@@ -355,9 +381,10 @@ function updateButtonStates() {
 }
 
 function handlePiecePicked() {
-    if (!state.currentSession || state.isPiecePicked) return;
+    if (!state.currentSession || state.isPiecePicked || state.isPaused) return;
 
     state.piecePickedTime = Date.now();
+    state.piecePausedTime = 0;
     state.isPiecePicked = true;
     updateButtonStates();
 
@@ -383,14 +410,19 @@ async function handleEndSession() {
 }
 
 async function handlePiecePlaced() {
-    if (!state.currentSession || !state.isPiecePicked) return;
+    if (!state.currentSession || !state.isPiecePicked || state.isPaused) return;
 
-    const elapsed = (Date.now() - state.piecePickedTime) / 1000;
+    const elapsed = (Date.now() - state.piecePickedTime - state.piecePausedTime) / 1000;
     state.lastEventTime = Date.now();
     state.piecePickedTime = null;
+    state.piecePausedTime = 0;
     state.isPiecePicked = false;
 
     await recordEvent(state.currentSession.id, 'piece_placed', elapsed);
+
+    // Track time for progression graph
+    state.pieceTimes.push(elapsed);
+    updateProgressionGraph();
 
     const current = parseInt(elements.sessionPlaced.textContent);
     elements.sessionPlaced.textContent = current + 1;
@@ -406,11 +438,12 @@ async function handlePiecePlaced() {
 }
 
 async function handlePieceFailed() {
-    if (!state.currentSession || !state.isPiecePicked) return;
+    if (!state.currentSession || !state.isPiecePicked || state.isPaused) return;
 
-    const elapsed = (Date.now() - state.piecePickedTime) / 1000;
+    const elapsed = (Date.now() - state.piecePickedTime - state.piecePausedTime) / 1000;
     state.lastEventTime = Date.now();
     state.piecePickedTime = null;
+    state.piecePausedTime = 0;
     state.isPiecePicked = false;
 
     await recordEvent(state.currentSession.id, 'piece_failed', elapsed);
@@ -457,9 +490,9 @@ function stopTimers() {
 }
 
 function updateSessionTimer() {
-    if (!state.sessionStartTime) return;
+    if (!state.sessionStartTime || state.isPaused) return;
 
-    const elapsed = Math.floor((Date.now() - state.sessionStartTime) / 1000);
+    const elapsed = Math.floor((Date.now() - state.sessionStartTime - state.totalPausedTime) / 1000);
     const hours = Math.floor(elapsed / 3600);
     const minutes = Math.floor((elapsed % 3600) / 60);
     const seconds = elapsed % 60;
@@ -469,9 +502,9 @@ function updateSessionTimer() {
 }
 
 function updatePieceTimer() {
-    if (!state.piecePickedTime) return;
+    if (!state.piecePickedTime || state.isPaused) return;
 
-    const elapsed = (Date.now() - state.piecePickedTime) / 1000;
+    const elapsed = (Date.now() - state.piecePickedTime - state.piecePausedTime) / 1000;
     elements.pieceTime.textContent = `${elapsed.toFixed(1)}s`;
 }
 
@@ -511,6 +544,167 @@ function formatDate(isoString) {
     });
 }
 
+// Pause/Resume Functions
+function handlePauseToggle() {
+    if (!state.currentSession) return;
+
+    if (state.isPaused) {
+        // Resume
+        const pauseDuration = Date.now() - state.pausedAt;
+        state.totalPausedTime += pauseDuration;
+        if (state.isPiecePicked) {
+            state.piecePausedTime += pauseDuration;
+        }
+        state.isPaused = false;
+        state.pausedAt = null;
+
+        elements.sessionView.classList.remove('session-paused');
+        elements.pauseIcon.classList.remove('hidden');
+        elements.playIcon.classList.add('hidden');
+    } else {
+        // Pause
+        state.isPaused = true;
+        state.pausedAt = Date.now();
+
+        elements.sessionView.classList.add('session-paused');
+        elements.pauseIcon.classList.add('hidden');
+        elements.playIcon.classList.remove('hidden');
+    }
+
+    updateButtonStates();
+}
+
+// Progression Graph Functions
+function resetProgressionGraph() {
+    const canvas = elements.progressionCanvas;
+    const ctx = canvas.getContext('2d');
+
+    // Set canvas size for retina
+    const rect = canvas.getBoundingClientRect();
+    canvas.width = rect.width * window.devicePixelRatio;
+    canvas.height = rect.height * window.devicePixelRatio;
+    ctx.scale(window.devicePixelRatio, window.devicePixelRatio);
+
+    ctx.clearRect(0, 0, rect.width, rect.height);
+    canvas.classList.remove('has-data');
+    elements.graphEmpty.style.display = 'block';
+}
+
+function updateProgressionGraph() {
+    const canvas = elements.progressionCanvas;
+    const ctx = canvas.getContext('2d');
+    const times = state.pieceTimes;
+
+    if (times.length === 0) {
+        resetProgressionGraph();
+        return;
+    }
+
+    canvas.classList.add('has-data');
+    elements.graphEmpty.style.display = 'none';
+
+    // Get actual display size
+    const rect = canvas.getBoundingClientRect();
+    const width = rect.width;
+    const height = rect.height;
+
+    // Set canvas size for retina
+    canvas.width = width * window.devicePixelRatio;
+    canvas.height = height * window.devicePixelRatio;
+    ctx.scale(window.devicePixelRatio, window.devicePixelRatio);
+
+    // Clear
+    ctx.clearRect(0, 0, width, height);
+
+    // Padding
+    const padding = { top: 10, right: 15, bottom: 25, left: 40 };
+    const graphWidth = width - padding.left - padding.right;
+    const graphHeight = height - padding.top - padding.bottom;
+
+    // Calculate scales
+    const maxTime = Math.max(...times) * 1.1;
+    const minTime = 0;
+
+    // Draw grid lines
+    ctx.strokeStyle = '#e2e8f0';
+    ctx.lineWidth = 1;
+
+    // Horizontal grid lines (time values)
+    const gridLines = 4;
+    for (let i = 0; i <= gridLines; i++) {
+        const y = padding.top + (graphHeight * i / gridLines);
+        ctx.beginPath();
+        ctx.moveTo(padding.left, y);
+        ctx.lineTo(width - padding.right, y);
+        ctx.stroke();
+
+        // Y-axis labels
+        const timeValue = maxTime - (maxTime * i / gridLines);
+        ctx.fillStyle = '#64748b';
+        ctx.font = '10px -apple-system, BlinkMacSystemFont, sans-serif';
+        ctx.textAlign = 'right';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(formatTime(timeValue), padding.left - 5, y);
+    }
+
+    // Draw X-axis label
+    ctx.fillStyle = '#64748b';
+    ctx.font = '10px -apple-system, BlinkMacSystemFont, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('Piece #', width / 2, height - 5);
+
+    // Draw line chart
+    if (times.length > 0) {
+        ctx.strokeStyle = '#4f46e5';
+        ctx.lineWidth = 2;
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
+
+        ctx.beginPath();
+        times.forEach((time, index) => {
+            const x = padding.left + (graphWidth * index / Math.max(times.length - 1, 1));
+            const y = padding.top + graphHeight - (graphHeight * (time - minTime) / (maxTime - minTime));
+
+            if (index === 0) {
+                ctx.moveTo(x, y);
+            } else {
+                ctx.lineTo(x, y);
+            }
+        });
+        ctx.stroke();
+
+        // Draw points
+        ctx.fillStyle = '#4f46e5';
+        times.forEach((time, index) => {
+            const x = padding.left + (graphWidth * index / Math.max(times.length - 1, 1));
+            const y = padding.top + graphHeight - (graphHeight * (time - minTime) / (maxTime - minTime));
+
+            ctx.beginPath();
+            ctx.arc(x, y, 4, 0, Math.PI * 2);
+            ctx.fill();
+        });
+
+        // Draw trend line if we have enough data
+        if (times.length >= 3) {
+            const avgFirst = times.slice(0, Math.ceil(times.length / 2)).reduce((a, b) => a + b, 0) / Math.ceil(times.length / 2);
+            const avgSecond = times.slice(Math.ceil(times.length / 2)).reduce((a, b) => a + b, 0) / (times.length - Math.ceil(times.length / 2));
+
+            ctx.strokeStyle = avgSecond < avgFirst ? 'rgba(34, 197, 94, 0.5)' : 'rgba(239, 68, 68, 0.3)';
+            ctx.lineWidth = 2;
+            ctx.setLineDash([5, 5]);
+
+            const startY = padding.top + graphHeight - (graphHeight * (avgFirst - minTime) / (maxTime - minTime));
+            const endY = padding.top + graphHeight - (graphHeight * (avgSecond - minTime) / (maxTime - minTime));
+
+            ctx.beginPath();
+            ctx.moveTo(padding.left, startY);
+            ctx.lineTo(width - padding.right, endY);
+            ctx.stroke();
+            ctx.setLineDash([]);
+        }
+    }
+}
+
 // Event Listeners
 elements.backBtn.addEventListener('click', goBack);
 
@@ -547,6 +741,7 @@ elements.piecePickedBtn.addEventListener('click', handlePiecePicked);
 elements.piecePlacedBtn.addEventListener('click', handlePiecePlaced);
 elements.pieceFailedBtn.addEventListener('click', handlePieceFailed);
 elements.endSessionBtn.addEventListener('click', handleEndSession);
+elements.pauseBtn.addEventListener('click', handlePauseToggle);
 
 // Prevent accidental navigation during session
 window.addEventListener('beforeunload', (e) => {

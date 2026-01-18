@@ -68,7 +68,17 @@
             <section id="session-view" class="view">
                 <div class="session-header">
                     <h2 id="session-puzzle-name"></h2>
-                    <div class="timer" id="session-timer">00:00:00</div>
+                    <div class="timer-row">
+                        <div class="timer" id="session-timer">00:00:00</div>
+                        <button id="pause-btn" class="btn btn-secondary btn-pause" aria-label="Pause session">
+                            <svg id="pause-icon" viewBox="0 0 24 24" width="24" height="24">
+                                <path fill="currentColor" d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/>
+                            </svg>
+                            <svg id="play-icon" class="hidden" viewBox="0 0 24 24" width="24" height="24">
+                                <path fill="currentColor" d="M8 5v14l11-7z"/>
+                            </svg>
+                        </button>
+                    </div>
                     <div class="piece-timer" id="piece-timer">
                         <span class="label">Time holding piece:</span>
                         <span class="time" id="piece-time">--</span>
@@ -96,6 +106,11 @@
                         <span class="btn-icon-large">-</span>
                         Failed
                     </button>
+                </div>
+                <div class="progression-graph">
+                    <h3>Time per Piece</h3>
+                    <canvas id="progression-canvas"></canvas>
+                    <div id="graph-empty" class="graph-empty">Place pieces to see progression</div>
                 </div>
                 <button id="end-session-btn" class="btn btn-danger btn-block">End Session</button>
             </section>
