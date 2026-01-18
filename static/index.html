@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <title>PuzzleTracker</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <div id="app">
+        <!-- Header -->
+        <header class="header">
+            <h1>PuzzleTracker</h1>
+            <button id="back-btn" class="btn-icon hidden" aria-label="Go back">
+                <svg viewBox="0 0 24 24" width="24" height="24">
+                    <path fill="currentColor" d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/>
+                </svg>
+            </button>
+        </header>
+
+        <!-- Main content area -->
+        <main id="main-content">
+            <!-- Puzzle List View -->
+            <section id="puzzle-list-view" class="view active">
+                <div class="view-header">
+                    <h2>Your Puzzles</h2>
+                    <button id="add-puzzle-btn" class="btn btn-primary">+ New Puzzle</button>
+                </div>
+                <div id="puzzles-container" class="puzzles-grid">
+                    <!-- Puzzles will be inserted here -->
+                </div>
+            </section>
+
+            <!-- New Puzzle Form -->
+            <section id="new-puzzle-view" class="view">
+                <h2>New Puzzle</h2>
+                <form id="new-puzzle-form" class="form">
+                    <div class="form-group">
+                        <label for="puzzle-name">Puzzle Name</label>
+                        <input type="text" id="puzzle-name" placeholder="e.g., 1000pc Mountain Landscape" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="puzzle-pieces">Total Pieces</label>
+                        <input type="number" id="puzzle-pieces" placeholder="e.g., 1000" min="1" required>
+                    </div>
+                    <button type="submit" class="btn btn-primary btn-block">Create Puzzle</button>
+                </form>
+            </section>
+
+            <!-- Puzzle Detail View -->
+            <section id="puzzle-detail-view" class="view">
+                <div class="puzzle-info">
+                    <h2 id="puzzle-detail-name"></h2>
+                    <p id="puzzle-detail-pieces" class="text-muted"></p>
+                </div>
+                <div class="stats-summary" id="stats-summary">
+                    <!-- Stats will be inserted here -->
+                </div>
+                <div class="action-buttons">
+                    <button id="start-session-btn" class="btn btn-primary btn-lg btn-block">Start Session</button>
+                    <button id="view-stats-btn" class="btn btn-secondary btn-block">View Statistics</button>
+                </div>
+            </section>
+
+            <!-- Active Session View -->
+            <section id="session-view" class="view">
+                <div class="session-header">
+                    <h2 id="session-puzzle-name"></h2>
+                    <div class="timer" id="session-timer">00:00:00</div>
+                    <div class="piece-timer" id="piece-timer">
+                        <span class="label">Time holding piece:</span>
+                        <span class="time" id="piece-time">--</span>
+                    </div>
+                </div>
+                <div class="session-stats">
+                    <div class="stat-box">
+                        <span class="stat-value" id="session-placed">0</span>
+                        <span class="stat-label">Placed</span>
+                    </div>
+                    <div class="stat-box">
+                        <span class="stat-value" id="session-failed">0</span>
+                        <span class="stat-label">Failed</span>
+                    </div>
+                </div>
+                <button id="piece-picked-btn" class="btn btn-primary btn-xl btn-block">
+                    Pick Piece
+                </button>
+                <div class="session-buttons">
+                    <button id="piece-placed-btn" class="btn btn-success btn-xl disabled" disabled>
+                        <span class="btn-icon-large">+</span>
+                        Placed
+                    </button>
+                    <button id="piece-failed-btn" class="btn btn-warning btn-xl disabled" disabled>
+                        <span class="btn-icon-large">-</span>
+                        Failed
+                    </button>
+                </div>
+                <button id="end-session-btn" class="btn btn-danger btn-block">End Session</button>
+            </section>
+
+            <!-- Statistics View -->
+            <section id="stats-view" class="view">
+                <h2>Statistics</h2>
+                <div id="stats-content">
+                    <!-- Stats will be inserted here -->
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <script src="/static/app.js"></script>
+</body>
+</html>
