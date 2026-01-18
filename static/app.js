@@ -18,7 +18,8 @@ let state = {
     pausedAt: null,         // When pause started
     totalPausedTime: 0,     // Total time spent paused (ms)
     piecePausedTime: 0,     // Time paused while holding current piece (ms)
-    pieceTimes: []          // Array of placement times for graph
+    pieceTimes: [],         // Array of placement times for graph
+    sessionScope: 'project' // 'project' (all sessions for puzzle) or 'current'
 };
 
 // DOM Elements
@@ -47,6 +48,8 @@ const elements = {
     pieceTime: document.getElementById('piece-time'),
     sessionPlaced: document.getElementById('session-placed'),
     sessionFailed: document.getElementById('session-failed'),
+    sessionPlacedLabel: document.getElementById('session-placed-label'),
+    sessionFailedLabel: document.getElementById('session-failed-label'),
     piecePickedBtn: document.getElementById('piece-picked-btn'),
     piecePlacedBtn: document.getElementById('piece-placed-btn'),
     pieceFailedBtn: document.getElementById('piece-failed-btn'),
@@ -58,7 +61,8 @@ const elements = {
     progressionCanvas: document.getElementById('progression-canvas'),
     graphEmpty: document.getElementById('graph-empty'),
     sessionView: document.getElementById('session-view'),
-    undoBtn: document.getElementById('undo-btn')
+    undoBtn: document.getElementById('undo-btn'),
+    sessionScopeButtons: document.querySelectorAll('[data-session-scope]')
 };
 
 // View Management
@@ -87,6 +91,106 @@ function goBack() {
     viewHistory.pop(); // Remove current view
     const previousView = viewHistory.pop() || 'puzzleList';
     showView(previousView);
+}
+
+const sessionScopes = {
+    project: 'project',
+    current: 'current'
+};
+
+function updateSessionScopeUI() {
+    elements.sessionScopeButtons.forEach(btn => {
+        const isActive = btn.dataset.sessionScope === state.sessionScope;
+        btn.classList.toggle('active', isActive);
+        btn.setAttribute('aria-pressed', isActive ? 'true' : 'false');
+    });
+}
+
+function updateScopeEmptyMessage() {
+    elements.graphEmpty.textContent = state.sessionScope === sessionScopes.current
+        ? 'Place pieces to see this sitting\'s progression'
+        : 'Place pieces to see this puzzle\'s progression';
+}
+
+function getProjectSessions() {
+    if (!state.currentPuzzle) return [];
+    return state.sessions.filter(session => session.puzzleId === state.currentPuzzle.id);
+}
+
+function countSessionEvents(sessions) {
+    let placed = 0;
+    let failed = 0;
+
+    sessions.forEach(session => {
+        (session.events || []).forEach(event => {
+            if (event.type === 'piece_placed') {
+                placed += 1;
+            } else if (event.type === 'piece_failed') {
+                failed += 1;
+            }
+        });
+    });
+
+    return { placed, failed };
+}
+
+function updateSessionStats() {
+    const counts = state.sessionScope === sessionScopes.current
+        ? countSessionEvents(state.currentSession ? [state.currentSession] : [])
+        : countSessionEvents(getProjectSessions());
+
+    elements.sessionPlaced.textContent = counts.placed.toString();
+    elements.sessionFailed.textContent = counts.failed.toString();
+
+    const labelSuffix = state.sessionScope === sessionScopes.current ? 'This Sitting' : 'Project';
+    elements.sessionPlacedLabel.textContent = `Placed (${labelSuffix})`;
+    elements.sessionFailedLabel.textContent = `Failed (${labelSuffix})`;
+}
+
+function setSessionScope(scope, options = {}) {
+    const nextScope = scope === sessionScopes.current ? sessionScopes.current : sessionScopes.project;
+    state.sessionScope = nextScope;
+    updateSessionScopeUI();
+    updateSessionStats();
+    updateScopeEmptyMessage();
+    if (!options.skipRender) {
+        updateProgressionGraph();
+    }
+}
+
+function getProjectPieceTimes() {
+    const sessions = getProjectSessions();
+    const events = [];
+
+    sessions.forEach(session => {
+        (session.events || []).forEach(event => {
+            if (event.type === 'piece_placed') {
+                events.push({
+                    elapsed: event.elapsed || 0,
+                    timestamp: event.timestamp || null,
+                    sessionStartedAt: session.startedAt || null
+                });
+            }
+        });
+    });
+
+    events.sort((a, b) => {
+        const aTime = a.timestamp || a.sessionStartedAt;
+        const bTime = b.timestamp || b.sessionStartedAt;
+        if (!aTime || !bTime) {
+            return 0;
+        }
+        return new Date(aTime) - new Date(bTime);
+    });
+
+    return events.map(event => event.elapsed);
+}
+
+function getScopePieceTimes() {
+    if (state.sessionScope === sessionScopes.current) {
+        return state.pieceTimes.slice();
+    }
+    return getProjectPieceTimes();
 }
 
 // API Functions
@@ -163,13 +267,50 @@ async function endSession(sessionId) {
 
 async function recordEvent(sessionId, type, elapsed) {
     try {
-        await fetch('/api/events', {
+        const response = await fetch('/api/events', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ sessionId, type, elapsed })
         });
+        let recordedEvent = {
+            type,
+            elapsed,
+            timestamp: new Date().toISOString()
+        };
+
+        if (response.ok) {
+            recordedEvent = await response.json();
+        }
+
+        const session = state.sessions.find(s => s.id === sessionId);
+        if (session) {
+            session.events = session.events || [];
+            session.events.push(recordedEvent);
+        }
+
+        if (state.currentSession && state.currentSession.id === sessionId && state.currentSession !== session) {
+            state.currentSession.events = state.currentSession.events || [];
+            state.currentSession.events.push(recordedEvent);
+        }
+
+        return recordedEvent;
     } catch (error) {
         console.error('Error recording event:', error);
+        const fallbackEvent = {
+            type,
+            elapsed,
+            timestamp: new Date().toISOString()
+        };
+        const session = state.sessions.find(s => s.id === sessionId);
+        if (session) {
+            session.events = session.events || [];
+            session.events.push(fallbackEvent);
+        }
+        if (state.currentSession && state.currentSession.id === sessionId && state.currentSession !== session) {
+            state.currentSession.events = state.currentSession.events || [];
+            state.currentSession.events.push(fallbackEvent);
+        }
+        return fallbackEvent;
     }
 }
 
@@ -289,6 +430,17 @@ async function renderStats(puzzleId) {
         return;
     }
 
+    const sessions = stats.sessions || [];
+    const sessionsCount = sessions.length;
+    const avgPiecesPerSession = sessionsCount ? (stats.totalPiecesPlaced / sessionsCount) : 0;
+    const avgVelocity = stats.totalTime > 0 ? (stats.totalPiecesPlaced / stats.totalTime) * 3600 : 0;
+    const sessionsWithVelocity = sessions.map(session => {
+        const totalTime = session.totalTime || 0;
+        const piecesPlaced = session.piecesPlaced || 0;
+        const velocity = totalTime > 0 ? (piecesPlaced / totalTime) * 3600 : 0;
+        return { ...session, velocity };
+    });
+
     elements.statsContent.innerHTML = `
         <div class="stats-card">
             <h3>Overall Progress</h3>
@@ -327,9 +479,31 @@ async function renderStats(puzzleId) {
         </div>
 
         <div class="stats-card">
+            <h3>Session Averages</h3>
+            <div class="stats-grid">
+                <div class="stats-item">
+                    <div class="value">${avgPiecesPerSession.toFixed(1)}</div>
+                    <div class="label">Pieces per Sitting</div>
+                </div>
+                <div class="stats-item">
+                    <div class="value">${formatVelocity(avgVelocity)}</div>
+                    <div class="label">Avg Velocity</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="stats-card">
+            <h3>Velocity Over Time</h3>
+            <div class="stats-graph">
+                <canvas id="velocity-canvas"></canvas>
+                <div id="velocity-empty" class="graph-empty">Complete a sitting session to see velocity</div>
+            </div>
+        </div>
+
+        <div class="stats-card">
             <h3>Sessions (${stats.sessionsCount})</h3>
             <div class="sessions-list">
-                ${stats.sessions.map(session => `
+                ${sessionsWithVelocity.map(session => `
                     <div class="session-item">
                         <div class="session-item-header">
                             <span>${formatDate(session.startedAt)}</span>
@@ -338,6 +512,7 @@ async function renderStats(puzzleId) {
                         <div class="session-item-stats">
                             <span>+${session.piecesPlaced} placed</span>
                             <span>-${session.piecesFailed} failed</span>
+                            <span>${formatVelocity(session.velocity)}</span>
                         </div>
                     </div>
                 `).join('')}
@@ -348,6 +523,17 @@ async function renderStats(puzzleId) {
             Delete Puzzle
         </button>
     `;
+
+    const velocityCanvas = document.getElementById('velocity-canvas');
+    const velocityEmpty = document.getElementById('velocity-empty');
+    const velocitySeries = sessionsWithVelocity
+        .slice()
+        .sort((a, b) => new Date(a.startedAt) - new Date(b.startedAt))
+        .map(session => session.velocity);
+
+    requestAnimationFrame(() => {
+        updateVelocityGraph(velocityCanvas, velocityEmpty, velocitySeries);
+    });
 }
 
 // Event Handlers
@@ -405,18 +591,25 @@ function hideSessionRecoveryDialog() {
 async function handleContinueSession(sessionId) {
     hideSessionRecoveryDialog();
 
-    const session = state.sessions.find(s => s.id === sessionId) ||
+    const fetchedSession = state.sessions.find(s => s.id === sessionId) ||
                     await fetch(`/api/puzzles/${state.currentPuzzle.id}/active-session`).then(r => r.json());
 
-    if (!session) return;
+    if (!fetchedSession) return;
 
-    // Calculate existing stats from events
-    const placedCount = (session.events || []).filter(e => e.type === 'piece_placed').length;
-    const failedCount = (session.events || []).filter(e => e.type === 'piece_failed').length;
-    const totalTime = (session.events || []).reduce((sum, e) => sum + (e.elapsed || 0), 0);
+    const existingIndex = state.sessions.findIndex(s => s.id === fetchedSession.id);
+    if (existingIndex === -1) {
+        state.sessions.push(fetchedSession);
+        state.currentSession = fetchedSession;
+    } else {
+        state.sessions[existingIndex] = fetchedSession;
+        state.currentSession = state.sessions[existingIndex];
+    }
+
+    const sessionEvents = state.currentSession.events || [];
+
+    const totalTime = sessionEvents.reduce((sum, e) => sum + (e.elapsed || 0), 0);
 
     // Restore session state
-    state.currentSession = session;
     state.sessionStartTime = Date.now() - (totalTime * 1000); // Offset to show correct elapsed time
     state.lastEventTime = Date.now();
     state.piecePickedTime = null;
@@ -425,13 +618,12 @@ async function handleContinueSession(sessionId) {
     state.pausedAt = null;
     state.totalPausedTime = 0;
     state.piecePausedTime = 0;
-    state.pieceTimes = (session.events || [])
+    state.pieceTimes = sessionEvents
         .filter(e => e.type === 'piece_placed')
         .map(e => e.elapsed || 0);
+    setSessionScope(sessionScopes.project, { skipRender: true });
 
     elements.sessionPuzzleName.textContent = state.currentPuzzle.name;
-    elements.sessionPlaced.textContent = placedCount.toString();
-    elements.sessionFailed.textContent = failedCount.toString();
     elements.sessionTimer.textContent = '00:00:00';
     elements.pieceTime.textContent = '--';
     elements.sessionView.classList.remove('session-paused');
@@ -444,11 +636,7 @@ async function handleContinueSession(sessionId) {
     showView('session');
 
     requestAnimationFrame(() => {
-        if (state.pieceTimes.length > 0) {
-            updateProgressionGraph();
-        } else {
-            resetProgressionGraph();
-        }
+        updateProgressionGraph();
     });
 }
 
@@ -475,10 +663,9 @@ async function handleStartSession() {
     state.totalPausedTime = 0;
     state.piecePausedTime = 0;
     state.pieceTimes = [];
+    setSessionScope(sessionScopes.project, { skipRender: true });
 
     elements.sessionPuzzleName.textContent = state.currentPuzzle.name;
-    elements.sessionPlaced.textContent = '0';
-    elements.sessionFailed.textContent = '0';
     elements.sessionTimer.textContent = '00:00:00';
     elements.pieceTime.textContent = '--';
     elements.sessionView.classList.remove('session-paused');
@@ -490,9 +677,9 @@ async function handleStartSession() {
     startTimers();
     showView('session');
 
-    // Reset graph after view is visible so canvas has proper dimensions
+    // Render graph after view is visible so canvas has proper dimensions
     requestAnimationFrame(() => {
-        resetProgressionGraph();
+        updateProgressionGraph();
     });
 }
 
@@ -559,9 +746,7 @@ async function handlePiecePlaced() {
     // Track time for progression graph
     state.pieceTimes.push(elapsed);
     updateProgressionGraph();
-
-    const current = parseInt(elements.sessionPlaced.textContent);
-    elements.sessionPlaced.textContent = current + 1;
+    updateSessionStats();
 
     updateButtonStates();
     updateUndoButtonState();
@@ -584,9 +769,7 @@ async function handlePieceFailed() {
     state.isPiecePicked = false;
 
     await recordEvent(state.currentSession.id, 'piece_failed', elapsed);
-
-    const current = parseInt(elements.sessionFailed.textContent);
-    elements.sessionFailed.textContent = current + 1;
+    updateSessionStats();
 
     updateButtonStates();
     updateUndoButtonState();
@@ -606,19 +789,22 @@ async function handleUndo() {
     if (!result) return;
 
     const removedEvent = result.removed;
+    const session = state.sessions.find(s => s.id === state.currentSession.id);
+    if (session && session.events && session.events.length) {
+        session.events.pop();
+    }
+    if (state.currentSession && state.currentSession !== session && state.currentSession.events && state.currentSession.events.length) {
+        state.currentSession.events.pop();
+    }
 
     // Update UI counters
     if (removedEvent.type === 'piece_placed') {
-        const current = parseInt(elements.sessionPlaced.textContent);
-        elements.sessionPlaced.textContent = Math.max(0, current - 1);
         // Remove from pieceTimes array for graph
         state.pieceTimes.pop();
         updateProgressionGraph();
-    } else if (removedEvent.type === 'piece_failed') {
-        const current = parseInt(elements.sessionFailed.textContent);
-        elements.sessionFailed.textContent = Math.max(0, current - 1);
     }
 
+    updateSessionStats();
     updateUndoButtonState();
 
     // Visual feedback
@@ -629,9 +815,7 @@ async function handleUndo() {
 }
 
 function updateUndoButtonState() {
-    const placedCount = parseInt(elements.sessionPlaced.textContent) || 0;
-    const failedCount = parseInt(elements.sessionFailed.textContent) || 0;
-    const hasEvents = (placedCount + failedCount) > 0;
+    const hasEvents = !!(state.currentSession && (state.currentSession.events || []).length);
 
     if (hasEvents && !state.isPaused) {
         elements.undoBtn.classList.remove('disabled');
@@ -705,6 +889,20 @@ function formatTime(seconds) {
     return `${mins}m ${secs}s`;
 }
 
+function formatVelocity(value) {
+    if (!value || value <= 0) {
+        return '--';
+    }
+    return `${value.toFixed(1)} pcs/hr`;
+}
+
+function formatVelocityTick(value) {
+    if (!value || value <= 0) {
+        return '0';
+    }
+    return value.toFixed(0);
+}
+
 function formatDuration(seconds) {
     const hours = Math.floor(seconds / 3600);
     const mins = Math.floor((seconds % 3600) / 60);
@@ -769,13 +967,14 @@ function resetProgressionGraph() {
 
     ctx.clearRect(0, 0, rect.width, rect.height);
     canvas.classList.remove('has-data');
+    updateScopeEmptyMessage();
     elements.graphEmpty.style.display = 'block';
 }
 
 function updateProgressionGraph() {
     const canvas = elements.progressionCanvas;
     const ctx = canvas.getContext('2d');
-    const times = state.pieceTimes;
+    const times = getScopePieceTimes();
 
     if (times.length === 0) {
         resetProgressionGraph();
@@ -887,6 +1086,90 @@ function updateProgressionGraph() {
     }
 }
 
+function updateVelocityGraph(canvas, emptyElement, velocities) {
+    if (!canvas || !emptyElement) return;
+
+    const ctx = canvas.getContext('2d');
+    const hasData = velocities.length > 0 && velocities.some(value => value > 0);
+
+    // Set canvas size for retina
+    const rect = canvas.getBoundingClientRect();
+    canvas.width = rect.width * window.devicePixelRatio;
+    canvas.height = rect.height * window.devicePixelRatio;
+    ctx.scale(window.devicePixelRatio, window.devicePixelRatio);
+
+    ctx.clearRect(0, 0, rect.width, rect.height);
+
+    if (!hasData) {
+        canvas.classList.remove('has-data');
+        emptyElement.style.display = 'block';
+        return;
+    }
+
+    canvas.classList.add('has-data');
+    emptyElement.style.display = 'none';
+
+    const padding = { top: 10, right: 15, bottom: 25, left: 40 };
+    const graphWidth = rect.width - padding.left - padding.right;
+    const graphHeight = rect.height - padding.top - padding.bottom;
+
+    const maxVelocity = Math.max(...velocities);
+    const minVelocity = 0;
+    const safeMax = maxVelocity === 0 ? 1 : maxVelocity * 1.1;
+
+    ctx.strokeStyle = '#e2e8f0';
+    ctx.lineWidth = 1;
+
+    const gridLines = 4;
+    for (let i = 0; i <= gridLines; i++) {
+        const y = padding.top + (graphHeight * i / gridLines);
+        ctx.beginPath();
+        ctx.moveTo(padding.left, y);
+        ctx.lineTo(rect.width - padding.right, y);
+        ctx.stroke();
+
+        const velocityValue = safeMax - (safeMax * i / gridLines);
+        ctx.fillStyle = '#64748b';
+        ctx.font = '10px -apple-system, BlinkMacSystemFont, sans-serif';
+        ctx.textAlign = 'right';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(formatVelocityTick(velocityValue), padding.left - 5, y);
+    }
+
+    ctx.fillStyle = '#64748b';
+    ctx.font = '10px -apple-system, BlinkMacSystemFont, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('Session #', rect.width / 2, rect.height - 5);
+
+    ctx.strokeStyle = '#22c55e';
+    ctx.lineWidth = 2;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+
+    ctx.beginPath();
+    velocities.forEach((velocity, index) => {
+        const x = padding.left + (graphWidth * index / Math.max(velocities.length - 1, 1));
+        const y = padding.top + graphHeight - (graphHeight * (velocity - minVelocity) / (safeMax - minVelocity));
+
+        if (index === 0) {
+            ctx.moveTo(x, y);
+        } else {
+            ctx.lineTo(x, y);
+        }
+    });
+    ctx.stroke();
+
+    ctx.fillStyle = '#22c55e';
+    velocities.forEach((velocity, index) => {
+        const x = padding.left + (graphWidth * index / Math.max(velocities.length - 1, 1));
+        const y = padding.top + graphHeight - (graphHeight * (velocity - minVelocity) / (safeMax - minVelocity));
+
+        ctx.beginPath();
+        ctx.arc(x, y, 4, 0, Math.PI * 2);
+        ctx.fill();
+    });
+}
+
 // Event Listeners
 elements.backBtn.addEventListener('click', goBack);
 
@@ -914,9 +1197,9 @@ elements.newPuzzleForm.addEventListener('submit', async (e) => {
 });
 
 elements.startSessionBtn.addEventListener('click', handleStartSession);
-elements.viewStatsBtn.addEventListener('click', () => {
-    renderStats(state.currentPuzzle.id);
+elements.viewStatsBtn.addEventListener('click', async () => {
     showView('stats');
+    await renderStats(state.currentPuzzle.id);
 });
 
 elements.piecePickedBtn.addEventListener('click', handlePiecePicked);
@@ -925,6 +1208,11 @@ elements.pieceFailedBtn.addEventListener('click', handlePieceFailed);
 elements.undoBtn.addEventListener('click', handleUndo);
 elements.endSessionBtn.addEventListener('click', handleEndSession);
 elements.pauseBtn.addEventListener('click', handlePauseToggle);
+elements.sessionScopeButtons.forEach(btn => {
+    btn.addEventListener('click', () => {
+        setSessionScope(btn.dataset.sessionScope);
+    });
+});
 
 // Prevent accidental navigation during session
 window.addEventListener('beforeunload', (e) => {

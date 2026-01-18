@@ -87,11 +87,22 @@
                 <div class="session-stats">
                     <div class="stat-box">
                         <span class="stat-value" id="session-placed">0</span>
-                        <span class="stat-label">Placed</span>
+                        <span class="stat-label" id="session-placed-label">Placed</span>
                     </div>
                     <div class="stat-box">
                         <span class="stat-value" id="session-failed">0</span>
-                        <span class="stat-label">Failed</span>
+                        <span class="stat-label" id="session-failed-label">Failed</span>
+                    </div>
+                </div>
+                <div class="session-scope">
+                    <span class="scope-label">Scope</span>
+                    <div class="scope-toggle" role="group" aria-label="Session scope">
+                        <button type="button" class="scope-toggle-btn active" data-session-scope="project" aria-pressed="true">
+                            Project
+                        </button>
+                        <button type="button" class="scope-toggle-btn" data-session-scope="current" aria-pressed="false">
+                            This Sitting
+                        </button>
                     </div>
                 </div>
                 <button id="piece-picked-btn" class="btn btn-primary btn-xl btn-block">
@@ -116,7 +127,7 @@
                 <div class="progression-graph">
                     <h3>Time per Piece</h3>
                     <canvas id="progression-canvas"></canvas>
-                    <div id="graph-empty" class="graph-empty">Place pieces to see progression</div>
+                    <div id="graph-empty" class="graph-empty">Place pieces to see this puzzle's progression</div>
                 </div>
                 <button id="end-session-btn" class="btn btn-danger btn-block">End Session</button>
             </section>
