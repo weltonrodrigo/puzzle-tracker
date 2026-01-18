@@ -151,6 +151,33 @@ def end_session(session_id):
     return jsonify({"error": "Session not found"}), 404
 
 
+@app.route('/api/puzzles/<puzzle_id>/active-session', methods=['GET'])
+def get_active_session(puzzle_id):
+    """Get active (unended) session for a puzzle, if any."""
+    data = load_data()
+
+    for session in data['sessions']:
+        if session['puzzleId'] == puzzle_id and session['endedAt'] is None:
+            return jsonify(session)
+
+    return jsonify(None)
+
+
+@app.route('/api/sessions/<session_id>', methods=['DELETE'])
+def delete_session(session_id):
+    """Delete a session."""
+    data = load_data()
+
+    original_count = len(data['sessions'])
+    data['sessions'] = [s for s in data['sessions'] if s['id'] != session_id]
+
+    if len(data['sessions']) == original_count:
+        return jsonify({"error": "Session not found"}), 404
+
+    save_data(data)
+    return jsonify({"success": True})
+
+
 @app.route('/api/events', methods=['POST'])
 def record_event():
     """Record a piece placed or failed event."""

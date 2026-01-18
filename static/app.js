@@ -182,6 +182,25 @@ async function fetchStats(puzzleId) {
     }
 }
 
+async function fetchActiveSession(puzzleId) {
+    try {
+        const response = await fetch(`/api/puzzles/${puzzleId}/active-session`);
+        return await response.json();
+    } catch (error) {
+        console.error('Error fetching active session:', error);
+        return null;
+    }
+}
+
+async function deleteSession(sessionId) {
+    try {
+        await fetch(`/api/sessions/${sessionId}`, { method: 'DELETE' });
+        state.sessions = state.sessions.filter(s => s.id !== sessionId);
+    } catch (error) {
+        console.error('Error deleting session:', error);
+    }
+}
+
 // Rendering Functions
 function renderPuzzleList() {
     if (state.puzzles.length === 0) {
@@ -320,6 +339,105 @@ async function openPuzzle(puzzleId) {
     state.currentPuzzle = state.puzzles.find(p => p.id === puzzleId);
     if (!state.currentPuzzle) return;
 
+    // Check for active (orphaned) session
+    const activeSession = await fetchActiveSession(puzzleId);
+    if (activeSession) {
+        showSessionRecoveryDialog(activeSession);
+        return;
+    }
+
+    await renderPuzzleDetail(state.currentPuzzle);
+    showView('puzzleDetail');
+}
+
+function showSessionRecoveryDialog(session) {
+    const startedAt = formatDate(session.startedAt);
+    const placedCount = (session.events || []).filter(e => e.type === 'piece_placed').length;
+    const failedCount = (session.events || []).filter(e => e.type === 'piece_failed').length;
+
+    const dialog = document.getElementById('session-recovery-dialog');
+    dialog.innerHTML = `
+        <div class="dialog-content">
+            <h3>Unfinished Session Found</h3>
+            <p>You have an active session that was interrupted:</p>
+            <div class="session-recovery-info">
+                <div><strong>Started:</strong> ${startedAt}</div>
+                <div><strong>Pieces placed:</strong> ${placedCount}</div>
+                <div><strong>Failed attempts:</strong> ${failedCount}</div>
+            </div>
+            <div class="dialog-buttons">
+                <button class="btn btn-primary" onclick="handleContinueSession('${session.id}')">
+                    Continue Session
+                </button>
+                <button class="btn btn-danger" onclick="handleDeleteOrphanedSession('${session.id}')">
+                    Delete Session
+                </button>
+                <button class="btn btn-secondary" onclick="hideSessionRecoveryDialog()">
+                    Cancel
+                </button>
+            </div>
+        </div>
+    `;
+    dialog.classList.add('active');
+}
+
+function hideSessionRecoveryDialog() {
+    const dialog = document.getElementById('session-recovery-dialog');
+    dialog.classList.remove('active');
+}
+
+async function handleContinueSession(sessionId) {
+    hideSessionRecoveryDialog();
+
+    const session = state.sessions.find(s => s.id === sessionId) ||
+                    await fetch(`/api/puzzles/${state.currentPuzzle.id}/active-session`).then(r => r.json());
+
+    if (!session) return;
+
+    // Calculate existing stats from events
+    const placedCount = (session.events || []).filter(e => e.type === 'piece_placed').length;
+    const failedCount = (session.events || []).filter(e => e.type === 'piece_failed').length;
+    const totalTime = (session.events || []).reduce((sum, e) => sum + (e.elapsed || 0), 0);
+
+    // Restore session state
+    state.currentSession = session;
+    state.sessionStartTime = Date.now() - (totalTime * 1000); // Offset to show correct elapsed time
+    state.lastEventTime = Date.now();
+    state.piecePickedTime = null;
+    state.isPiecePicked = false;
+    state.isPaused = false;
+    state.pausedAt = null;
+    state.totalPausedTime = 0;
+    state.piecePausedTime = 0;
+    state.pieceTimes = (session.events || [])
+        .filter(e => e.type === 'piece_placed')
+        .map(e => e.elapsed || 0);
+
+    elements.sessionPuzzleName.textContent = state.currentPuzzle.name;
+    elements.sessionPlaced.textContent = placedCount.toString();
+    elements.sessionFailed.textContent = failedCount.toString();
+    elements.sessionTimer.textContent = '00:00:00';
+    elements.pieceTime.textContent = '--';
+    elements.sessionView.classList.remove('session-paused');
+    elements.pauseIcon.classList.remove('hidden');
+    elements.playIcon.classList.add('hidden');
+
+    updateButtonStates();
+    startTimers();
+    showView('session');
+
+    requestAnimationFrame(() => {
+        if (state.pieceTimes.length > 0) {
+            updateProgressionGraph();
+        } else {
+            resetProgressionGraph();
+        }
+    });
+}
+
+async function handleDeleteOrphanedSession(sessionId) {
+    hideSessionRecoveryDialog();
+    await deleteSession(sessionId);
     await renderPuzzleDetail(state.currentPuzzle);
     showView('puzzleDetail');
 }
