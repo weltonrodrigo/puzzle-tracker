@@ -1,5 +1,15 @@
 # PuzzleTracker
 
+## UI Terminology
+
+- **Piece placing screen**: The active session view (`#session-view` in `static/index.html`, handled by session-related functions in `static/app.js`). This is where users track puzzle piece placements during a session. Key elements:
+  - Session timer and pause button
+  - "Time holding piece" and "Last piece" timers
+  - Placed/Failed counters with scope toggle (Project vs This Sitting)
+  - Pick Piece → Placed/Failed workflow buttons
+  - Undo button
+  - Progression graph showing time per piece
+
 ## Deployment
 
 - **Trigger**: Push to `main` branch on GitHub

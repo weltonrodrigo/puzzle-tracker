@@ -19,7 +19,8 @@ let state = {
     totalPausedTime: 0,     // Total time spent paused (ms)
     piecePausedTime: 0,     // Time paused while holding current piece (ms)
     pieceTimes: [],         // Array of placement times for graph
-    sessionScope: 'project' // 'project' (all sessions for puzzle) or 'current'
+    sessionScope: 'project', // 'project' (all sessions for puzzle) or 'current'
+    lastPieceTime: null      // Time it took to place the last piece (seconds)
 };
 
 // DOM Elements
@@ -46,6 +47,7 @@ const elements = {
     sessionPuzzleName: document.getElementById('session-puzzle-name'),
     sessionTimer: document.getElementById('session-timer'),
     pieceTime: document.getElementById('piece-time'),
+    lastPieceTime: document.getElementById('last-piece-time'),
     sessionPlaced: document.getElementById('session-placed'),
     sessionFailed: document.getElementById('session-failed'),
     sessionPlacedLabel: document.getElementById('session-placed-label'),
@@ -621,11 +623,13 @@ async function handleContinueSession(sessionId) {
     state.pieceTimes = sessionEvents
         .filter(e => e.type === 'piece_placed')
         .map(e => e.elapsed || 0);
+    state.lastPieceTime = state.pieceTimes.length > 0 ? state.pieceTimes[state.pieceTimes.length - 1] : null;
     setSessionScope(sessionScopes.project, { skipRender: true });
 
     elements.sessionPuzzleName.textContent = state.currentPuzzle.name;
     elements.sessionTimer.textContent = '00:00:00';
     elements.pieceTime.textContent = '--';
+    elements.lastPieceTime.textContent = state.lastPieceTime !== null ? formatTime(state.lastPieceTime) : '--';
     elements.sessionView.classList.remove('session-paused');
     elements.pauseIcon.classList.remove('hidden');
     elements.playIcon.classList.add('hidden');
@@ -663,11 +667,13 @@ async function handleStartSession() {
     state.totalPausedTime = 0;
     state.piecePausedTime = 0;
     state.pieceTimes = [];
+    state.lastPieceTime = null;
     setSessionScope(sessionScopes.project, { skipRender: true });
 
     elements.sessionPuzzleName.textContent = state.currentPuzzle.name;
     elements.sessionTimer.textContent = '00:00:00';
     elements.pieceTime.textContent = '--';
+    elements.lastPieceTime.textContent = '--';
     elements.sessionView.classList.remove('session-paused');
     elements.pauseIcon.classList.remove('hidden');
     elements.playIcon.classList.add('hidden');
@@ -740,6 +746,7 @@ async function handlePiecePlaced() {
     state.piecePickedTime = null;
     state.piecePausedTime = 0;
     state.isPiecePicked = false;
+    state.lastPieceTime = elapsed;
 
     await recordEvent(state.currentSession.id, 'piece_placed', elapsed);
 
@@ -751,6 +758,7 @@ async function handlePiecePlaced() {
     updateButtonStates();
     updateUndoButtonState();
     elements.pieceTime.textContent = '--';
+    elements.lastPieceTime.textContent = formatTime(elapsed);
 
     // Visual feedback
     elements.piecePlacedBtn.style.transform = 'scale(0.95)';
@@ -801,6 +809,9 @@ async function handleUndo() {
     if (removedEvent.type === 'piece_placed') {
         // Remove from pieceTimes array for graph
         state.pieceTimes.pop();
+        // Update lastPieceTime to the new last piece (or null if none)
+        state.lastPieceTime = state.pieceTimes.length > 0 ? state.pieceTimes[state.pieceTimes.length - 1] : null;
+        elements.lastPieceTime.textContent = state.lastPieceTime !== null ? formatTime(state.lastPieceTime) : '--';
         updateProgressionGraph();
     }
 
