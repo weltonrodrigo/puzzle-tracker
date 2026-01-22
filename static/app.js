@@ -62,6 +62,8 @@ const elements = {
     playIcon: document.getElementById('play-icon'),
     progressionCanvas: document.getElementById('progression-canvas'),
     graphEmpty: document.getElementById('graph-empty'),
+    histogramCanvas: document.getElementById('histogram-canvas'),
+    histogramEmpty: document.getElementById('histogram-empty'),
     sessionView: document.getElementById('session-view'),
     undoBtn: document.getElementById('undo-btn'),
     sessionScopeButtons: document.querySelectorAll('[data-session-scope]')
@@ -157,6 +159,7 @@ function setSessionScope(scope, options = {}) {
     updateScopeEmptyMessage();
     if (!options.skipRender) {
         updateProgressionGraph();
+        updateHistogram();
     }
 }
 
@@ -641,6 +644,7 @@ async function handleContinueSession(sessionId) {
 
     requestAnimationFrame(() => {
         updateProgressionGraph();
+        updateHistogram();
     });
 }
 
@@ -686,6 +690,7 @@ async function handleStartSession() {
     // Render graph after view is visible so canvas has proper dimensions
     requestAnimationFrame(() => {
         updateProgressionGraph();
+        updateHistogram();
     });
 }
 
@@ -753,6 +758,7 @@ async function handlePiecePlaced() {
     // Track time for progression graph
     state.pieceTimes.push(elapsed);
     updateProgressionGraph();
+    updateHistogram();
     updateSessionStats();
 
     updateButtonStates();
@@ -813,6 +819,7 @@ async function handleUndo() {
         state.lastPieceTime = state.pieceTimes.length > 0 ? state.pieceTimes[state.pieceTimes.length - 1] : null;
         elements.lastPieceTime.textContent = state.lastPieceTime !== null ? formatTime(state.lastPieceTime) : '--';
         updateProgressionGraph();
+        updateHistogram();
     }
 
     updateSessionStats();
@@ -1095,6 +1102,128 @@ function updateProgressionGraph() {
             ctx.setLineDash([]);
         }
     }
+}
+
+function resetHistogram() {
+    const canvas = elements.histogramCanvas;
+    const ctx = canvas.getContext('2d');
+
+    const rect = canvas.getBoundingClientRect();
+    canvas.width = rect.width * window.devicePixelRatio;
+    canvas.height = rect.height * window.devicePixelRatio;
+    ctx.scale(window.devicePixelRatio, window.devicePixelRatio);
+
+    ctx.clearRect(0, 0, rect.width, rect.height);
+    canvas.classList.remove('has-data');
+    elements.histogramEmpty.style.display = 'block';
+}
+
+function updateHistogram() {
+    const canvas = elements.histogramCanvas;
+    const ctx = canvas.getContext('2d');
+    const times = getScopePieceTimes();
+
+    if (times.length === 0) {
+        resetHistogram();
+        return;
+    }
+
+    canvas.classList.add('has-data');
+    elements.histogramEmpty.style.display = 'none';
+
+    const rect = canvas.getBoundingClientRect();
+    const width = rect.width;
+    const height = rect.height;
+
+    canvas.width = width * window.devicePixelRatio;
+    canvas.height = height * window.devicePixelRatio;
+    ctx.scale(window.devicePixelRatio, window.devicePixelRatio);
+
+    ctx.clearRect(0, 0, width, height);
+
+    const padding = { top: 10, right: 15, bottom: 25, left: 40 };
+    const graphWidth = width - padding.left - padding.right;
+    const graphHeight = height - padding.top - padding.bottom;
+
+    // Calculate histogram bins
+    const minTime = Math.min(...times);
+    const maxTime = Math.max(...times);
+    const range = maxTime - minTime;
+
+    // Use ~8 bins or fewer for small datasets
+    const binCount = Math.min(8, Math.max(3, Math.ceil(Math.sqrt(times.length))));
+    const binWidth = range > 0 ? range / binCount : 1;
+
+    // Create bins
+    const bins = new Array(binCount).fill(0);
+    const binEdges = [];
+    for (let i = 0; i <= binCount; i++) {
+        binEdges.push(minTime + i * binWidth);
+    }
+
+    // Count values in each bin
+    times.forEach(time => {
+        let binIndex = Math.floor((time - minTime) / binWidth);
+        if (binIndex >= binCount) binIndex = binCount - 1;
+        if (binIndex < 0) binIndex = 0;
+        bins[binIndex]++;
+    });
+
+    const maxCount = Math.max(...bins);
+
+    // Draw grid lines
+    ctx.strokeStyle = '#e2e8f0';
+    ctx.lineWidth = 1;
+
+    const gridLines = 4;
+    for (let i = 0; i <= gridLines; i++) {
+        const y = padding.top + (graphHeight * i / gridLines);
+        ctx.beginPath();
+        ctx.moveTo(padding.left, y);
+        ctx.lineTo(width - padding.right, y);
+        ctx.stroke();
+
+        // Y-axis labels (counts)
+        const countValue = Math.round(maxCount - (maxCount * i / gridLines));
+        ctx.fillStyle = '#64748b';
+        ctx.font = '10px -apple-system, BlinkMacSystemFont, sans-serif';
+        ctx.textAlign = 'right';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(countValue.toString(), padding.left - 5, y);
+    }
+
+    // Draw X-axis label
+    ctx.fillStyle = '#64748b';
+    ctx.font = '10px -apple-system, BlinkMacSystemFont, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('Time (s)', width / 2, height - 5);
+
+    // Draw bars
+    const barPadding = 2;
+    const barWidth = (graphWidth / binCount) - barPadding;
+
+    ctx.fillStyle = '#4f46e5';
+    bins.forEach((count, index) => {
+        const barHeight = maxCount > 0 ? (count / maxCount) * graphHeight : 0;
+        const x = padding.left + index * (barWidth + barPadding) + barPadding / 2;
+        const y = padding.top + graphHeight - barHeight;
+
+        ctx.fillRect(x, y, barWidth, barHeight);
+    });
+
+    // Draw bin edge labels (just first, middle, last)
+    ctx.fillStyle = '#64748b';
+    ctx.font = '9px -apple-system, BlinkMacSystemFont, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'top';
+
+    const labelY = padding.top + graphHeight + 3;
+    // First bin label
+    ctx.textAlign = 'left';
+    ctx.fillText(formatTime(binEdges[0]), padding.left, labelY);
+    // Last bin label
+    ctx.textAlign = 'right';
+    ctx.fillText(formatTime(binEdges[binCount]), width - padding.right, labelY);
 }
 
 function updateVelocityGraph(canvas, emptyElement, velocities) {
