@@ -624,6 +624,12 @@ main {
     display: block;
 }
 
+#histogram-canvas {
+    width: 100%;
+    height: 100px;
+    display: block;
+}
+
 .graph-empty {
     text-align: center;
     color: var(--text-muted);
@@ -631,7 +637,8 @@ main {
     padding: 2rem 0;
 }
 
-#progression-canvas.has-data + .graph-empty {
+#progression-canvas.has-data + .graph-empty,
+#histogram-canvas.has-data + .graph-empty {
     display: none;
 }
 
