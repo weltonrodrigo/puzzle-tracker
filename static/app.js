@@ -1025,7 +1025,7 @@ function updateProgressionGraph() {
     const minTime = 0;
 
     // Draw grid lines
-    ctx.strokeStyle = '#e2e8f0';
+    ctx.strokeStyle = '#e8ddd0';
     ctx.lineWidth = 1;
 
     // Horizontal grid lines (time values)
@@ -1039,22 +1039,22 @@ function updateProgressionGraph() {
 
         // Y-axis labels
         const timeValue = maxTime - (maxTime * i / gridLines);
-        ctx.fillStyle = '#64748b';
-        ctx.font = '10px -apple-system, BlinkMacSystemFont, sans-serif';
+        ctx.fillStyle = '#6b6560';
+        ctx.font = '10px "DM Sans", -apple-system, BlinkMacSystemFont, sans-serif';
         ctx.textAlign = 'right';
         ctx.textBaseline = 'middle';
         ctx.fillText(formatTime(timeValue), padding.left - 5, y);
     }
 
     // Draw X-axis label
-    ctx.fillStyle = '#64748b';
-    ctx.font = '10px -apple-system, BlinkMacSystemFont, sans-serif';
+    ctx.fillStyle = '#6b6560';
+    ctx.font = '10px "DM Sans", -apple-system, BlinkMacSystemFont, sans-serif';
     ctx.textAlign = 'center';
     ctx.fillText('Piece #', width / 2, height - 5);
 
     // Draw line chart
     if (times.length > 0) {
-        ctx.strokeStyle = '#4f46e5';
+        ctx.strokeStyle = '#c45c3e';
         ctx.lineWidth = 2;
         ctx.lineCap = 'round';
         ctx.lineJoin = 'round';
@@ -1073,7 +1073,7 @@ function updateProgressionGraph() {
         ctx.stroke();
 
         // Draw points
-        ctx.fillStyle = '#4f46e5';
+        ctx.fillStyle = '#c45c3e';
         times.forEach((time, index) => {
             const x = padding.left + (graphWidth * index / Math.max(times.length - 1, 1));
             const y = padding.top + graphHeight - (graphHeight * (time - minTime) / (maxTime - minTime));
@@ -1088,7 +1088,7 @@ function updateProgressionGraph() {
             const avgFirst = times.slice(0, Math.ceil(times.length / 2)).reduce((a, b) => a + b, 0) / Math.ceil(times.length / 2);
             const avgSecond = times.slice(Math.ceil(times.length / 2)).reduce((a, b) => a + b, 0) / (times.length - Math.ceil(times.length / 2));
 
-            ctx.strokeStyle = avgSecond < avgFirst ? 'rgba(34, 197, 94, 0.5)' : 'rgba(239, 68, 68, 0.3)';
+            ctx.strokeStyle = avgSecond < avgFirst ? 'rgba(107, 143, 113, 0.6)' : 'rgba(224, 123, 107, 0.5)';
             ctx.lineWidth = 2;
             ctx.setLineDash([5, 5]);
 
@@ -1172,7 +1172,7 @@ function updateHistogram() {
     const maxCount = Math.max(...bins);
 
     // Draw grid lines
-    ctx.strokeStyle = '#e2e8f0';
+    ctx.strokeStyle = '#e8ddd0';
     ctx.lineWidth = 1;
 
     const gridLines = 4;
@@ -1185,16 +1185,16 @@ function updateHistogram() {
 
         // Y-axis labels (counts)
         const countValue = Math.round(maxCount - (maxCount * i / gridLines));
-        ctx.fillStyle = '#64748b';
-        ctx.font = '10px -apple-system, BlinkMacSystemFont, sans-serif';
+        ctx.fillStyle = '#6b6560';
+        ctx.font = '10px "DM Sans", -apple-system, BlinkMacSystemFont, sans-serif';
         ctx.textAlign = 'right';
         ctx.textBaseline = 'middle';
         ctx.fillText(countValue.toString(), padding.left - 5, y);
     }
 
     // Draw X-axis label
-    ctx.fillStyle = '#64748b';
-    ctx.font = '10px -apple-system, BlinkMacSystemFont, sans-serif';
+    ctx.fillStyle = '#6b6560';
+    ctx.font = '10px "DM Sans", -apple-system, BlinkMacSystemFont, sans-serif';
     ctx.textAlign = 'center';
     ctx.fillText('Time (s)', width / 2, height - 5);
 
@@ -1202,18 +1202,21 @@ function updateHistogram() {
     const barPadding = 2;
     const barWidth = (graphWidth / binCount) - barPadding;
 
-    ctx.fillStyle = '#4f46e5';
+    ctx.fillStyle = '#c45c3e';
     bins.forEach((count, index) => {
         const barHeight = maxCount > 0 ? (count / maxCount) * graphHeight : 0;
         const x = padding.left + index * (barWidth + barPadding) + barPadding / 2;
         const y = padding.top + graphHeight - barHeight;
 
-        ctx.fillRect(x, y, barWidth, barHeight);
+        // Draw bar with rounded top
+        ctx.beginPath();
+        ctx.roundRect(x, y, barWidth, barHeight, [3, 3, 0, 0]);
+        ctx.fill();
     });
 
     // Draw bin edge labels (just first, middle, last)
-    ctx.fillStyle = '#64748b';
-    ctx.font = '9px -apple-system, BlinkMacSystemFont, sans-serif';
+    ctx.fillStyle = '#6b6560';
+    ctx.font = '9px "DM Sans", -apple-system, BlinkMacSystemFont, sans-serif';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'top';
 
@@ -1257,7 +1260,7 @@ function updateVelocityGraph(canvas, emptyElement, velocities) {
     const minVelocity = 0;
     const safeMax = maxVelocity === 0 ? 1 : maxVelocity * 1.1;
 
-    ctx.strokeStyle = '#e2e8f0';
+    ctx.strokeStyle = '#e8ddd0';
     ctx.lineWidth = 1;
 
     const gridLines = 4;
@@ -1269,19 +1272,19 @@ function updateVelocityGraph(canvas, emptyElement, velocities) {
         ctx.stroke();
 
         const velocityValue = safeMax - (safeMax * i / gridLines);
-        ctx.fillStyle = '#64748b';
-        ctx.font = '10px -apple-system, BlinkMacSystemFont, sans-serif';
+        ctx.fillStyle = '#6b6560';
+        ctx.font = '10px "DM Sans", -apple-system, BlinkMacSystemFont, sans-serif';
         ctx.textAlign = 'right';
         ctx.textBaseline = 'middle';
         ctx.fillText(formatVelocityTick(velocityValue), padding.left - 5, y);
     }
 
-    ctx.fillStyle = '#64748b';
-    ctx.font = '10px -apple-system, BlinkMacSystemFont, sans-serif';
+    ctx.fillStyle = '#6b6560';
+    ctx.font = '10px "DM Sans", -apple-system, BlinkMacSystemFont, sans-serif';
     ctx.textAlign = 'center';
     ctx.fillText('Session #', rect.width / 2, rect.height - 5);
 
-    ctx.strokeStyle = '#22c55e';
+    ctx.strokeStyle = '#6b8f71';
     ctx.lineWidth = 2;
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
@@ -1299,7 +1302,7 @@ function updateVelocityGraph(canvas, emptyElement, velocities) {
     });
     ctx.stroke();
 
-    ctx.fillStyle = '#22c55e';
+    ctx.fillStyle = '#6b8f71';
     velocities.forEach((velocity, index) => {
         const x = padding.left + (graphWidth * index / Math.max(velocities.length - 1, 1));
         const y = padding.top + graphHeight - (graphHeight * (velocity - minVelocity) / (safeMax - minVelocity));
